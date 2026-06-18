@@ -1,0 +1,32 @@
+{
+  "collapse-filter": true,
+  "search": "-path:\"_템플릿\"",
+  "showTags": false,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": true,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    { "query": "path:\"00_지식금고/스킬\"", "color": { "a": 1, "rgb": 16106776 } },
+    { "query": "path:\"00_지식금고/공통\"", "color": { "a": 1, "rgb": 9085110 } },
+    { "query": "path:\"00_지식금고/마케팅\"", "color": { "a": 1, "rgb": 15245626 } },
+    { "query": "path:\"00_지식금고/전략\"", "color": { "a": 1, "rgb": 5017087 } },
+    { "query": "path:\"00_지식금고/운영\"", "color": { "a": 1, "rgb": 4637802 } },
+    { "query": "path:\"00_지식금고/검토\"", "color": { "a": 1, "rgb": 15682893 } },
+    { "query": "path:\"00_지식금고/총괄\"", "color": { "a": 1, "rgb": 10910192 } },
+    { "query": "path:\"90_산출물\"", "color": { "a": 1, "rgb": 2864816 } },
+    { "query": "path:\"02_외부자료\" OR path:\"01_원문\"", "color": { "a": 1, "rgb": 7041664 } }
+  ],
+  "collapse-display": true,
+  "showArrow": false,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1,
+  "lineSizeMultiplier": 1,
+  "collapse-forces": true,
+  "centerStrength": 0.518713248970312,
+  "repelStrength": 10,
+  "linkStrength": 1,
+  "linkDistance": 250,
+  "scale": 1.4019828977760995,
+  "close": true
+}

@@ -1,0 +1,51 @@
+{
+  "name": "ai-office-desktop",
+  "private": true,
+  "version": "1.0.6",
+  "type": "module",
+  "description": "AI 팀장 오피스 데스크톱 — 프로덕션 서버 + Electron 패키징",
+  "main": "electron/main.js",
+  "scripts": {
+    "server": "node server/index.js",
+    "build:web": "npm --prefix web run build",
+    "build:seed": "node scripts/build-seed.mjs",
+    "build:all": "npm run build:web && npm run build:seed",
+    "electron": "npm run build:all && electron electron/main.js",
+    "dist": "npm run build:all && electron-builder"
+  },
+  "dependencies": {
+    "connect": "^3.7.0",
+    "serve-static": "^1.16.2"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.aioffice.app",
+    "productName": "AI팀장오피스",
+    "directories": { "output": "release" },
+    "files": [
+      "electron/main.js",
+      "electron/preload.cjs",
+      "electron/onboarding.html",
+      "server/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "web/dist", "to": "web-dist" },
+      { "from": "electron/seed", "to": "seed" }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "AI팀장오피스"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# 의존성 (재설치 가능)
+node_modules/
+web/node_modules/
+
+# 빌드 산출물
+web/dist/
+electron/seed/
+release/
+
+# 원본 Connect-AI 참고 소스 (761MB · 공개 repo 클론본이라 백업 불필요)
+sourcecode/
+
+# 세션·임시
+.omc/
+web/.omc/
+_sprite_preview/
+
+# 로그·OS
+*.log
+.DS_Store
+Thumbs.db
+
+# 동기화 임시
+*.tmp
+
+# 개인 대화 원본 (민감·재생성 가능 — git 추적 제외, 로컬에만 보관)
+vault/대표_대화로그.md
+
+# 휴지통 (삭제한 파일 임시 보관 — 동기화 제외)
+vault/.trash/

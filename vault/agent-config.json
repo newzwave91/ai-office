@@ -1,0 +1,22 @@
+{
+  "marketing": {
+    "name": "Echo",
+    "model": "sonnet",
+    "tone": "balanced"
+  },
+  "strategy": {
+    "name": "Oracle",
+    "model": "sonnet",
+    "tone": "balanced"
+  },
+  "ops": {
+    "name": "Link",
+    "model": "sonnet",
+    "tone": "balanced"
+  },
+  "review": {
+    "name": "Glitch",
+    "model": "sonnet",
+    "tone": "balanced"
+  }
+}
