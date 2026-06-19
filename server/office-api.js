@@ -325,6 +325,7 @@ export function registerOfficeApi(app, root) {
       + '.claude/agents/' + agent + '.md 파일을 읽고 그 페르소나에 맞춰, 아래 업무를 실제로 수행하라(대화가 아니라 실무 처리다). '
       + 'CLAUDE.md 수칙대로 ① vault/00_지식금고의 관련 노트를 먼저 확인하고, ② 결과가 문서형 산출물이면 vault/90_산출물/에 마크다운으로 저장하라(파일명은 주제 키워드). 트래커 파일(vault/tracker.json)은 절대 수정하지 마라. '
       + '확인 안 된 숫자는 지어내지 말고 [확인 필요]로 표시. '
+      + '산출물을 저장하기 전에 시작 시 정한 성공 기준 대비 충족 여부를 스스로 self-check하고, 미흡하면 보완한 뒤 저장하라. '
       + '작업이 끝나면 마지막 메시지에 결과 요약을 800자 이내로 출력하라 — (1) 핵심 결론 (2) 한 일 (3) 저장한 파일 경로(있으면). '
       + toneLine + '업무: ' + instruction
     patchTask(taskId, { status: 'doing', startedAt: nowIso() })
@@ -732,7 +733,7 @@ export function registerOfficeApi(app, root) {
         allowed = 'Read,Glob,Grep,Write(vault/**),Edit(vault/**)'
       } else {
         prompt = '.claude/agents/' + agent + '.md 파일을 읽고 그 페르소나로 답하라. 속도가 중요하다. '
-          + '맥락이 꼭 필요할 때만 vault/00_지식금고/index.md를 한 번만 빠르게 훑어 관련 사실을 반영하되, 파일을 일일이 열거나 grep으로 전체 검색하지 마라. 확실하면 바로 답하라. '
+          + '맥락이 꼭 필요할 때만 vault/00_지식금고/index.md를 한 번만 빠르게 훑어 관련 사실을 반영하라. 평소엔 전체 grep을 피하되, 찾는 사실이 index에 안 보이면 Grep으로 분야 폴더만 키워드 검색해도 된다(규모가 커져 index에서 누락될 때의 안전장치). 확실하면 바로 답하라. '
           + '노트 적립·index·log·결정로그 갱신은 하지 마라(읽기 전용 모드). '
           + 'vault/대표_대화로그.md는 대표가 자신의 말투·질문 패턴 분석을 명시적으로 요청할 때만 읽어라. 그 외에는 절대 읽지 마라. '
           + '답변 수준: 전략·기획성 질문이면 결론 1줄 → 핵심 근거 → 실행 제안, 단순 질문이면 한두 문장으로 간결하게. 1200자 이내. 확인 안 된 숫자는 [확인 필요]. '

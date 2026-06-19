@@ -10,6 +10,7 @@
     "build:web": "npm --prefix web run build",
     "build:seed": "node scripts/build-seed.mjs",
     "build:all": "npm run build:web && npm run build:seed",
+    "lint:vault": "node .claude/scripts/lint-vault.mjs vault",
     "electron": "npm run build:all && electron electron/main.js",
     "dist": "npm run build:all && electron-builder"
   },
