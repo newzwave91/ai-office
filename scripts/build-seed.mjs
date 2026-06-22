@@ -38,4 +38,13 @@ fs.copyFileSync(path.join(ROOT, 'electron', 'claude-template.md'), path.join(SEE
 //    회사색 없는 골격: 🏠 홈·시작 가이드·스킬 폴더(스킬 인덱스)·_템플릿·분야 폴더(.gitkeep)·.obsidian 설정 포함.
 copyDir(path.join(ROOT, 'electron', 'vault-template'), TPL, n => n === '.DS_Store' || n === 'workspace.json')
 
+// 4) (선택) 음성 STT 공용 키 — electron/stt-config.json 이 있으면 seed에 동봉한다.
+//    이 파일은 .gitignore라 git엔 안 올라가고 exe 빌드에만 들어간다(개발자 공용 RTZR 키).
+//    seed 루트에 두므로 workspace로는 복사되지 않고(=git-sync로 새지 않음) main.js가 env로만 주입한다.
+const sttKey = path.join(ROOT, 'electron', 'stt-config.json')
+if (fs.existsSync(sttKey)) {
+  fs.copyFileSync(sttKey, path.join(SEED, 'stt-config.json'))
+  console.log('[build-seed] STT 공용 키 동봉됨 (exe에만 포함, git 제외)')
+}
+
 console.log('[build-seed] seed 생성 완료 →', SEED)

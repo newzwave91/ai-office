@@ -169,15 +169,21 @@ ipcMain.handle('save-company', async (_e, info) => {
 // 음성 받아쓰기(STT) 비밀키 주입 — userData/stt-config.json(=git 동기화 폴더 밖)에서 읽어 env로 넘긴다.
 // 서버(office-api.js)는 process.env.RTZR_CLIENT_ID/SECRET만 읽으므로 키가 vault·exe에 노출되지 않는다.
 function loadSttKeyIntoEnv() {
-  try {
-    const f = path.join(app.getPath('userData'), 'stt-config.json')
-    if (!fs.existsSync(f)) return
-    const cfg = JSON.parse(fs.readFileSync(f, 'utf8'))
-    const id = cfg.clientId || cfg.client_id
-    const secret = cfg.clientSecret || cfg.client_secret
-    if (id && !process.env.RTZR_CLIENT_ID) process.env.RTZR_CLIENT_ID = String(id)
-    if (secret && !process.env.RTZR_CLIENT_SECRET) process.env.RTZR_CLIENT_SECRET = String(secret)
-  } catch { /* 무시 — 키 없으면 음성모드만 비활성, 앱은 정상 */ }
+  // 1순위: 고객이 직접 둔 userData/stt-config.json (개인 키 override)
+  // 2순위: exe에 번들된 seed/stt-config.json (개발자 공용 키 — 빌드 때만 동봉, git 제외)
+  for (const f of [path.join(app.getPath('userData'), 'stt-config.json'), path.join(SEED_DIR, 'stt-config.json')]) {
+    try {
+      if (!fs.existsSync(f)) continue
+      const cfg = JSON.parse(fs.readFileSync(f, 'utf8'))
+      const id = cfg.clientId || cfg.client_id
+      const secret = cfg.clientSecret || cfg.client_secret
+      if (id && secret) {
+        if (!process.env.RTZR_CLIENT_ID) process.env.RTZR_CLIENT_ID = String(id)
+        if (!process.env.RTZR_CLIENT_SECRET) process.env.RTZR_CLIENT_SECRET = String(secret)
+        return
+      }
+    } catch { /* 다음 후보로 */ }
+  }
 }
 
 ipcMain.handle('start-app', async () => {

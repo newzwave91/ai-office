@@ -1,7 +1,7 @@
 {
   "name": "ai-office-desktop",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "description": "AI 팀장 오피스 데스크톱 — 프로덕션 서버 + Electron 패키징",
   "main": "electron/main.js",
