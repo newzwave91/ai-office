@@ -347,6 +347,77 @@ export function registerOfficeApi(app, root) {
   }
   function enqueueAgentJob(job) { jobQueue.push(job); pumpQueue() }
 
+  // ── 음성 받아쓰기(STT) — RTZR VITO 프록시 ───────────────────────
+  // 비밀키는 서버에서만 읽는다(렌더러/배포 exe에 노출 금지). env 우선, 없으면 ROOT/stt-config.json.
+  // Electron(prod)은 userData/stt-config.json을 읽어 env에 주입한다(main.js). 둘 다 git 동기화 밖.
+  function readSttKey() {
+    let id = process.env.RTZR_CLIENT_ID || ''
+    let secret = process.env.RTZR_CLIENT_SECRET || ''
+    if (!id || !secret) {
+      try {
+        const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'stt-config.json'), 'utf8'))
+        id = id || cfg.clientId || cfg.client_id || ''
+        secret = secret || cfg.clientSecret || cfg.client_secret || ''
+      } catch { /* 파일 없음 — env만 사용 */ }
+    }
+    return { id, secret }
+  }
+  let _sttToken = null, _sttTokenExp = 0
+  async function rtzrToken(id, secret) {
+    if (_sttToken && Date.now() < _sttTokenExp - 30 * 60 * 1000) return _sttToken
+    const r = await fetch('https://openapi.vito.ai/v1/authenticate', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: id, client_secret: secret })
+    })
+    if (!r.ok) throw new Error('RTZR 인증 실패(' + r.status + ') — 키를 확인하세요')
+    const j = await r.json()
+    _sttToken = j.access_token
+    const exp = Number(j.expire_at)
+    _sttTokenExp = exp > 1e12 ? exp : (exp > 0 ? exp * 1000 : Date.now() + 6 * 3600 * 1000)
+    return _sttToken
+  }
+  function readRawBody(req, maxBytes) {
+    return new Promise((resolve, reject) => {
+      const parts = []; let size = 0
+      req.on('data', d => { size += d.length; if (size > maxBytes) { reject(new Error('오디오가 너무 큽니다')); req.destroy() } else parts.push(d) })
+      req.on('end', () => resolve(Buffer.concat(parts)))
+      req.on('error', reject)
+    })
+  }
+  const sttSleep = ms => new Promise(r => setTimeout(r, ms))
+  app.use('/api/stt', async (req, res) => {
+    if (req.method !== 'POST') return json(res, 405, { error: 'POST only' })
+    const { id, secret } = readSttKey()
+    if (!id || !secret) return json(res, 200, { code: 'no_key', error: 'RTZR 음성 키가 설정되지 않았습니다' })
+    try {
+      const audio = await readRawBody(req, 25 * 1024 * 1024) // 25MB 상한
+      if (!audio.length) return json(res, 400, { error: '빈 오디오' })
+      const token = await rtzrToken(id, secret)
+      const fd = new FormData()
+      fd.append('file', new Blob([audio], { type: 'audio/wav' }), 'rec.wav')
+      fd.append('config', JSON.stringify({ model_name: 'sommers', language: 'ko', use_diarization: false, domain: 'GENERAL' }))
+      const post = await fetch('https://openapi.vito.ai/v1/transcribe', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd
+      })
+      const pj = await post.json().catch(() => ({}))
+      if (!post.ok || !pj.id) return json(res, 502, { error: 'RTZR 전송 실패: ' + (pj.message || post.status) })
+      let transcript = '', failed = false
+      for (let i = 0; i < 40; i++) {
+        await sttSleep(700)
+        const g = await fetch('https://openapi.vito.ai/v1/transcribe/' + pj.id, { headers: { Authorization: 'Bearer ' + token } })
+        const gj = await g.json().catch(() => ({}))
+        if (gj.status === 'completed') {
+          const utts = (gj.results && gj.results.utterances) || []
+          transcript = utts.map(u => u.msg).join(' ').replace(/\s+/g, ' ').trim()
+          break
+        }
+        if (gj.status === 'failed') { failed = true; break }
+      }
+      if (failed) return json(res, 502, { error: 'RTZR 변환 실패' })
+      json(res, 200, { transcript })
+    } catch (e) { json(res, 500, { error: String((e && e.message) || e) }) }
+  })
+
   app.use('/api/vault', (req, res) => {
     try { json(res, 200, scanVault()) } catch (e) { json(res, 500, { error: String(e) }) }
   })

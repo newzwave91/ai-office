@@ -1,6 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import JarvisCore from './JarvisCore.jsx'
 
+// 음성모드 입력 — 마이크 오디오를 16kHz로 캡처해 WAV로 만들어 서버 /api/stt(RTZR 프록시)로 보낸다.
+// 브라우저·Electron 모두 같은 서버 프록시 경로라 환경 분기가 필요 없다.
+
+// Float32 PCM(mono) → 16-bit PCM WAV Blob. RTZR이 wav를 받으므로 서버측 트랜스코딩이 불필요하다.
+function encodeWav(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buf)
+  const w = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)) }
+  w(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE')
+  w(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+  w(36, 'data'); view.setUint32(40, samples.length * 2, true)
+  let off = 44
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2
+  }
+  return new Blob([view], { type: 'audio/wav' })
+}
+
 export default function ChatConsole({ agent, agentId, cfg, state, messages, busy, onSend, onAdopt, onClose }) {
   const dispName = (cfg && cfg.name) || agent.person
   const dispRole = (cfg && cfg.role) || agent.role
@@ -11,15 +31,21 @@ export default function ChatConsole({ agent, agentId, cfg, state, messages, busy
   const recRef = useRef(null)
   const spokenRef = useRef(0)
   const [elapsed, setElapsed] = useState(0)
-  const [listening, setListening] = useState(false)
+  const [listening, setListening] = useState(false)   // 음성모드: 지금 사용자 발화를 녹음 중
   const [speaking, setSpeaking] = useState(false)
+  const [converting, setConverting] = useState(false) // 녹음 구간을 RTZR로 변환 중
+  const [voiceMode, setVoiceMode] = useState(false)   // 음성모드 ON/OFF (핸즈프리 입력)
+  const voiceRef = useRef(null)                        // VAD 컨트롤러(정리용)
+  const busyRef = useRef(busy); busyRef.current = busy
+  const speakingRef = useRef(speaking); speakingRef.current = speaking
+  const convertingRef = useRef(converting); convertingRef.current = converting
   const [typing, setTyping] = useState(false)
   const typingTimer = useRef(null)
   const onType = () => {
     // 키별 펄스 없이, 타이핑 중이라는 '상태'만 유지 → 오브가 자연스럽게(부드럽게) 깨어나 움직인다
     setTyping(true); clearTimeout(typingTimer.current); typingTimer.current = setTimeout(() => setTyping(false), 1400)
   }
-  const coreState = busy ? 'thinking' : listening ? 'listening' : speaking ? 'speaking' : typing ? 'typing' : 'idle'
+  const coreState = (busy || converting) ? 'thinking' : (listening || voiceMode) ? 'listening' : speaking ? 'speaking' : typing ? 'typing' : 'idle'
   const [deep, setDeep] = useState(false)
   const [tts, setTts] = useState(false)
   const [koVoices, setKoVoices] = useState([])
@@ -91,6 +117,9 @@ export default function ChatConsole({ agent, agentId, cfg, state, messages, busy
   }, [messages.length, tts])
   useEffect(() => () => { if (window.speechSynthesis) window.speechSynthesis.cancel() }, [])
 
+  // 음성모드 마이크 정리(언마운트 시) — 채팅을 닫으면 마이크를 반드시 놓는다.
+  useEffect(() => () => stopVoiceMode(), [])
+
   const mode = () => (deep ? 'deep' : 'fast')
   const send = () => {
     const v = inputRef.current.value.trim()
@@ -99,26 +128,86 @@ export default function ChatConsole({ agent, agentId, cfg, state, messages, busy
     onSend(v, mode())
   }
 
-  // 보이스 받아쓰기
-  const toggleVoice = () => {
-    if (listening) { if (recRef.current) recRef.current.stop(); return }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { alert('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 또는 Edge에서 사용해 주세요.'); return }
-    const rec = new SR()
-    rec.lang = 'ko-KR'; rec.interimResults = true; rec.continuous = false
-    rec.onresult = e => {
-      let txt = ''
-      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript
-      if (inputRef.current) inputRef.current.value = txt
-      if (e.results[e.results.length - 1].isFinal && txt.trim() && !busy) {
-        setListening(false)
-        const v = txt.trim(); inputRef.current.value = ''; onSend(v, mode())
+  // ── 음성모드(핸즈프리 입력) ─────────────────────────────────
+  // ON: 마이크를 계속 열어두고 VAD(음성 활동 감지)로 '말하기 시작~침묵'을 잡아 그 구간만
+  //     RTZR로 보내 자동 전송한다(마우스 클릭 불필요). 답변·변환·TTS 중엔 듣지 않고, 끝나면 자동 재개.
+  const toggleVoiceMode = () => {
+    if (voiceMode) { setVoiceMode(false); stopVoiceMode() }
+    else { setVoiceMode(true); startVoiceMode() }
+  }
+
+  const stopVoiceMode = () => {
+    const v = voiceRef.current
+    if (v) {
+      v.active = false
+      try { v.proc.onaudioprocess = null; v.proc.disconnect(); v.source.disconnect() } catch (e) {}
+      try { v.stream.getTracks().forEach(t => t.stop()) } catch (e) {}
+      try { v.ctx.close() } catch (e) {}
+      voiceRef.current = null
+    }
+    setListening(false)
+  }
+
+  const startVoiceMode = async () => {
+    let stream
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }) }
+    catch (e) { alert('마이크를 사용할 수 없습니다. Windows 설정 > 개인정보 보호 > 마이크에서 앱 접근을 허용해 주세요.'); setVoiceMode(false); return }
+    const AC = window.AudioContext || window.webkitAudioContext
+    const ctx = new AC({ sampleRate: 16000 })
+    const source = ctx.createMediaStreamSource(stream)
+    const proc = ctx.createScriptProcessor(4096, 1, 1)
+    const sr = ctx.sampleRate
+    const ctl = { active: true, stream, ctx, source, proc }
+    voiceRef.current = ctl
+    // VAD 파라미터(마이크·환경 따라 조정 가능)
+    const START = 0.020                                  // 말하기 시작으로 보는 RMS
+    const END = 0.012                                    // 침묵으로 보는 RMS
+    const frameMs = 4096 / sr * 1000
+    const endSilenceFrames = Math.ceil(900 / frameMs)    // ~0.9초 침묵이면 발화 끝
+    const minVoicedFrames = Math.ceil(350 / frameMs)     // 최소 0.35초는 말해야 인정(노이즈 무시)
+    let recording = false, frames = [], silence = 0, voiced = 0
+    proc.onaudioprocess = (e) => {
+      if (!ctl.active) return
+      // 답변/변환/TTS 중엔 듣지 않음(겹침·자기 음성 방지). 상태 풀리면 자동 재개.
+      if (busyRef.current || convertingRef.current || speakingRef.current) {
+        if (recording) { recording = false; frames = []; silence = 0; voiced = 0; setListening(false) }
+        return
+      }
+      const buf = e.inputBuffer.getChannelData(0)
+      let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+      const rms = Math.sqrt(sum / buf.length)
+      if (!recording) {
+        if (rms > START) { recording = true; frames = [new Float32Array(buf)]; silence = 0; voiced = 1; setListening(true) }
+      } else {
+        frames.push(new Float32Array(buf))
+        if (rms < END) silence++; else { silence = 0; voiced++ }
+        if (silence >= endSilenceFrames) {            // 발화 끝
+          recording = false; setListening(false)
+          const seg = frames; frames = []
+          if (voiced >= minVoicedFrames) finalizeSegment(seg, sr)
+          silence = 0; voiced = 0
+        }
       }
     }
-    rec.onerror = () => setListening(false)
-    rec.onend = () => setListening(false)
-    recRef.current = rec
-    try { rec.start(); setListening(true) } catch (e) { setListening(false) }
+    source.connect(proc); proc.connect(ctx.destination)
+  }
+
+  // 녹음된 한 발화 → WAV → 서버 /api/stt(RTZR) → 텍스트 자동 전송
+  const finalizeSegment = async (segFrames, sr) => {
+    const total = segFrames.reduce((n, c) => n + c.length, 0)
+    const audio = new Float32Array(total)
+    let off = 0; for (const c of segFrames) { audio.set(c, off); off += c.length }
+    if (audio.length < sr * 0.3) return
+    const wav = encodeWav(audio, sr)
+    setConverting(true)
+    try {
+      const r = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav }).then(x => x.json())
+      console.log('[voice] /api/stt →', JSON.stringify(r).slice(0, 200))
+      if (r.code === 'no_key') { alert('RTZR 음성 키가 설정되지 않았습니다. 설정 후 다시 음성모드를 켜 주세요.'); setVoiceMode(false); stopVoiceMode(); return }
+      const txt = String((r.transcript) || '').trim()
+      if (txt && !busyRef.current) onSend(txt, mode())
+    } catch (e) { console.error('[voice] stt 실패:', e) }
+    finally { setConverting(false) }
   }
 
   const viewPath = async (p, name, isProtected) => {
@@ -292,9 +381,9 @@ export default function ChatConsole({ agent, agentId, cfg, state, messages, busy
         )}
 
         <div className="console-input">
-          <button className={'mic-btn' + (listening ? ' on' : '')} onClick={toggleVoice} disabled={busy} title="음성으로 지시 (Chrome/Edge)">🎤</button>
+          <button className={'mic-btn' + (voiceMode ? ' on' : '')} onClick={toggleVoiceMode} title={voiceMode ? '음성모드 켜짐 — 말하면 자동 인식·전송 (눌러서 끄기)' : '음성모드 — 켜면 말로 자동 입력(핸즈프리)'}>{voiceMode ? '🎙️' : '🎤'}</button>
           <textarea ref={inputRef} rows={1} className="console-qin" disabled={busy} onChange={onType}
-            placeholder={busy ? '응답을 기다리는 중…' : (listening ? '듣고 있어요… 말씀하세요' : dispName + ' 팀장에게 지시 (Enter 전송 · 🎤 음성)')}
+            placeholder={busy ? '응답을 기다리는 중…' : converting ? '음성 변환 중…' : voiceMode ? (listening ? '듣는 중… 말씀하세요' : '음성모드 ON — 말하면 자동 전송 (타이핑도 가능)') : dispName + ' 팀장에게 지시 (Enter 전송 · 🎤 음성모드)'}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
           <button className="rbtn" disabled={busy} onClick={send}>전송</button>
         </div>

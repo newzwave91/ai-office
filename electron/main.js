@@ -166,8 +166,23 @@ ipcMain.handle('save-company', async (_e, info) => {
   catch (e) { return { ok: false, error: String(e) } }
 })
 
+// 음성 받아쓰기(STT) 비밀키 주입 — userData/stt-config.json(=git 동기화 폴더 밖)에서 읽어 env로 넘긴다.
+// 서버(office-api.js)는 process.env.RTZR_CLIENT_ID/SECRET만 읽으므로 키가 vault·exe에 노출되지 않는다.
+function loadSttKeyIntoEnv() {
+  try {
+    const f = path.join(app.getPath('userData'), 'stt-config.json')
+    if (!fs.existsSync(f)) return
+    const cfg = JSON.parse(fs.readFileSync(f, 'utf8'))
+    const id = cfg.clientId || cfg.client_id
+    const secret = cfg.clientSecret || cfg.client_secret
+    if (id && !process.env.RTZR_CLIENT_ID) process.env.RTZR_CLIENT_ID = String(id)
+    if (secret && !process.env.RTZR_CLIENT_SECRET) process.env.RTZR_CLIENT_SECRET = String(secret)
+  } catch { /* 무시 — 키 없으면 음성모드만 비활성, 앱은 정상 */ }
+}
+
 ipcMain.handle('start-app', async () => {
   if (!httpServer) {
+    loadSttKeyIntoEnv()
     const r = await startServer({ root: WORKSPACE, distDir: DIST_DIR, port: 0, host: '127.0.0.1' })
     httpServer = r.server
     serverPort = r.port
@@ -198,6 +213,8 @@ async function openMainWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false }
   })
   mainWindow.setMenuBarVisibility(false)
+  // 마이크 권한 명시 허용 — 음성 받아쓰기(getUserMedia)용. media 외에는 거부.
+  mainWindow.webContents.session.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'media' || perm === 'audioCapture'))
   // 외부 링크는 기본 브라우저로
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
   await mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`)
