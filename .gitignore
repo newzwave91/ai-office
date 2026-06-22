@@ -23,9 +23,8 @@ Thumbs.db
 # 동기화 임시
 *.tmp
 
-# 음성 받아쓰기(RTZR) 비밀키 — 절대 커밋·동기화 금지(로컬 전용, exe 빌드에만 동봉)
+# 음성 받아쓰기(RTZR) 비밀키 — 절대 커밋·동기화 금지(로컬 전용)
 stt-config.json
-electron/stt-config.json
 
 # 개인 대화 원본 (민감·재생성 가능 — git 추적 제외, 로컬에만 보관)
 vault/대표_대화로그.md
